@@ -1,4 +1,3 @@
-// lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/expense.dart';
@@ -14,10 +13,9 @@ class HomeScreen extends StatefulWidget {
 }
  
 class _HomeScreenState extends State<HomeScreen> {
-  // null = show ALL categories; a specific value filters the list
   ExpenseCategory? _selectedCategory;
+  bool _hasShownBudgetAlert = false;
  
-  // Category display name helper
   String _label(ExpenseCategory? cat) {
     if (cat == null) return 'All';
     switch (cat) {
@@ -30,6 +28,45 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
  
+  void _showBudgetDialog() {
+    final settingsBox = Hive.box('settings');
+    final currentBudget = settingsBox.get('monthly_budget', defaultValue: 0.0) as double;
+    final budgetController = TextEditingController(text: currentBudget.toStringAsFixed(0));
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Set Monthly Budget'),
+        content: TextField(
+          controller: budgetController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Budget Amount (₱)',
+            prefixText: '₱',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final budget = double.tryParse(budgetController.text.trim());
+              if (budget != null && budget > 0) {
+                await settingsBox.put('monthly_budget', budget);
+                Navigator.pop(ctx);
+                setState(() {});
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+ 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -37,6 +74,11 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('SpendWise', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.attach_money),
+            onPressed: _showBudgetDialog,
+            tooltip: 'Set Monthly Budget',
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () => showAboutDialog(
@@ -48,17 +90,14 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      // ValueListenableBuilder listens to the Hive box and rebuilds automatically
       body: ValueListenableBuilder<Box<Expense>>(
         valueListenable: ExpenseService.listenable,
         builder: (context, box, _) {
-          // Recalculate every time the box changes
           final double total = box.values.fold(0.0, (s, e) => s + e.amount);
           final List<Expense> expenses = _selectedCategory == null
               ? ExpenseService.getAllExpenses()
               : ExpenseService.getExpensesByCategory(_selectedCategory!);
  
-          // Sort by date descending (newest first)
           expenses.sort((a, b) => b.date.compareTo(a.date));
  
           return Column(
@@ -80,6 +119,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
  
   Widget _buildSummaryCard(double total, int count) {
+    final settingsBox = Hive.box('settings');
+    final budget = settingsBox.get('monthly_budget', defaultValue: 0.0) as double;
+    final percentage = budget > 0 ? (total / budget).clamp(0.0, 1.0) : 0.0;
+    
+    if (percentage >= 0.8 && budget > 0 && !_hasShownBudgetAlert) {
+      _hasShownBudgetAlert = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '⚠️ Budget Alert: You\'ve used ${(percentage * 100).toStringAsFixed(0)}% of your monthly budget!',
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      });
+    }
+    
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       elevation: 4,
@@ -87,20 +145,48 @@ class _HomeScreenState extends State<HomeScreen> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Total Spending',
-                style: const TextStyle(fontSize: 14, color: Colors.black54)),
-              Text('$count expense${count == 1 ? '' : 's'}',
-                style: const TextStyle(fontSize: 12, color: Colors.black45)),
-            ]),
-            Text(
-              '₱${total.toStringAsFixed(2)}', // ₱ symbol
-              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold,
-                color: Colors.indigo),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Total Spending',
+                    style: const TextStyle(fontSize: 14, color: Colors.black54)),
+                  Text('$count expense${count == 1 ? '' : 's'}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black45)),
+                ]),
+                Text(
+                  '₱${total.toStringAsFixed(2)}',
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold,
+                    color: Colors.indigo),
+                ),
+              ],
             ),
+            if (budget > 0) ...[
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Budget: ₱${budget.toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                  Text('${(percentage * 100).toStringAsFixed(0)}% used',
+                      style: TextStyle(fontSize: 12, 
+                          color: percentage >= 0.8 ? Colors.red : Colors.black54)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: percentage,
+                backgroundColor: Colors.grey[200],
+                color: percentage >= 0.8 ? Colors.red : Colors.indigo,
+                minHeight: 12,
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ],
           ],
         ),
       ),
