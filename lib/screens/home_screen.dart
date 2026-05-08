@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/expense.dart';
 import '../services/expense_service.dart';
+import '../services/export_service.dart';
 import '../widgets/expense_tile.dart';
 import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
@@ -67,6 +68,30 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
  
+  Future<void> _exportData() async {
+    try {
+      final filePath = await ExportService.exportCurrentMonth();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Exported to: $filePath'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Export failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+ 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -78,6 +103,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.attach_money),
             onPressed: _showBudgetDialog,
             tooltip: 'Set Monthly Budget',
+          ),
+          IconButton(
+            icon: const Icon(Icons.file_download_outlined),
+            onPressed: _exportData,
+            tooltip: 'Export Monthly Report',
           ),
           IconButton(
             icon: const Icon(Icons.info_outline),
